@@ -313,4 +313,40 @@ mod tests {
             .last_seq
             .contains_key(&("grok".to_string(), "stale".to_string())));
     }
+
+    #[test]
+    fn bridge_message_serialization() {
+        let msg = BridgeMessage {
+            v: 1,
+            action: "STATUS_REPORT".into(),
+            provider: Some("grok".into()),
+            payload: Some(serde_json::json!({"test": "data"})),
+            transport: Some("local".into()),
+            boot_id: Some("boot1234".into()),
+            seq: Some(42),
+            mid: Some(99),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialization failed");
+
+        // Assert field names are correct
+        assert!(json.contains(r#""v":1"#));
+        assert!(json.contains(r#""action":"STATUS_REPORT""#));
+        assert!(json.contains(r#""provider":"grok""#));
+        assert!(json.contains(r#""payload":{"test":"data"}"#));
+        assert!(json.contains(r#""transport":"local""#));
+        assert!(json.contains(r#""bootId":"boot1234""#)); // test for #[serde(rename = "bootId")]
+        assert!(json.contains(r#""seq":42"#));
+        assert!(json.contains(r#""mid":99"#));
+
+        let deserialized: BridgeMessage = serde_json::from_str(&json).expect("deserialization failed");
+        assert_eq!(deserialized.v, msg.v);
+        assert_eq!(deserialized.action, msg.action);
+        assert_eq!(deserialized.provider, msg.provider);
+        assert_eq!(deserialized.payload, msg.payload);
+        assert_eq!(deserialized.transport, msg.transport);
+        assert_eq!(deserialized.boot_id, msg.boot_id);
+        assert_eq!(deserialized.seq, msg.seq);
+        assert_eq!(deserialized.mid, msg.mid);
+    }
 }

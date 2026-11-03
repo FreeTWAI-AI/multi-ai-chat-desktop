@@ -2397,6 +2397,7 @@ mod tests {
     use tauri::{PhysicalPosition, PhysicalSize};
 
     use super::{
+        ProviderState,
         accept_status_for_session_reset, adopt_grok_bridge_boot, bridge_resets_on_boot_rotation,
         cancel_grok_navigation, cancel_grok_popup_recovery, cancel_session_reset,
         challenge_auxiliary_navigation_allowed, claim_grok_popup_recovery, confirm_grok_page_load,
@@ -3547,5 +3548,41 @@ mod tests {
             guard.status_boot.remove(provider);
             guard.pending_session_boot.remove(provider);
         }
+    }
+
+    #[test]
+    fn bounds_deserialization() {
+        let json = r#"{"x": 10.5, "y": 20.0, "width": 800.0, "height": 600.5}"#;
+        let bounds: Bounds = serde_json::from_str(json).unwrap();
+        assert_eq!(bounds.x, 10.5);
+        assert_eq!(bounds.y, 20.0);
+        assert_eq!(bounds.width, 800.0);
+        assert_eq!(bounds.height, 600.5);
+    }
+
+    #[test]
+    fn provider_state_serialization() {
+        let state = ProviderState {
+            provider: "grok".into(),
+            webview: "loaded".into(),
+            dom: "ready".into(),
+            login: "logged_in".into(),
+            thinking: true,
+            last_status_at: 123456789,
+            bridge: "degraded".into(),
+            bridge_reason: Some("stale".into()),
+            adapter: "ok".into(),
+        };
+
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(json.contains(r#""provider":"grok""#));
+        assert!(json.contains(r#""webview":"loaded""#));
+        assert!(json.contains(r#""dom":"ready""#));
+        assert!(json.contains(r#""login":"logged_in""#));
+        assert!(json.contains(r#""thinking":true"#));
+        assert!(json.contains(r#""lastStatusAt":123456789"#));
+        assert!(json.contains(r#""bridge":"degraded""#));
+        assert!(json.contains(r#""bridgeReason":"stale""#));
+        assert!(json.contains(r#""adapter":"ok""#));
     }
 }
