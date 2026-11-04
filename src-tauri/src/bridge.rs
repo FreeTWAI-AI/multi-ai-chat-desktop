@@ -150,8 +150,10 @@ fn decode_title_frame(title: &str) -> Result<Option<BridgeMessage>, String> {
     if !title.starts_with(TITLE_PREFIX) {
         return Ok(None);
     }
-    if title.chars().count() > MAX_TITLE_FRAME_CHARS {
-        return Err("title frame too large".into());
+    if title.len() > MAX_TITLE_FRAME_CHARS {
+        if title.chars().count() > MAX_TITLE_FRAME_CHARS {
+            return Err("title frame too large".into());
+        }
     }
     let rest = &title[TITLE_PREFIX.len()..];
     let mut parts = rest.split('|');
@@ -165,38 +167,40 @@ fn decode_title_frame(title: &str) -> Result<Option<BridgeMessage>, String> {
     if parts.next().is_some() {
         return Err("too many title fields".into());
     }
-    let decoded = base64_url_decode_to_string(encoded)?;
+    let decoded_bytes = base64_url_decode(encoded)?;
     let mut msg: BridgeMessage =
-        serde_json::from_str(&decoded).map_err(|error| error.to_string())?;
+        serde_json::from_slice(&decoded_bytes).map_err(|error| error.to_string())?;
     msg.boot_id = Some(boot_id.to_string());
     msg.seq = Some(seq);
     Ok(Some(msg))
 }
 
-fn base64_url_decode_to_string(value: &str) -> Result<String, String> {
-    let bytes = base64_url_decode(value)?;
-    String::from_utf8(bytes).map_err(|error| error.to_string())
-}
-
 fn base64_url_decode(value: &str) -> Result<Vec<u8>, String> {
-    let mut input = value.replace('-', "+").replace('_', "/");
-    while input.len() % 4 != 0 {
-        input.push('=');
-    }
-    let mut output = Vec::new();
+    let bytes = value.as_bytes();
+    let capacity = (bytes.len() * 3) / 4 + 3;
+    let mut output = Vec::with_capacity(capacity);
     let mut chunk = [0u8; 4];
-    for group in input.as_bytes().chunks(4) {
-        for (idx, byte) in group.iter().enumerate() {
-            chunk[idx] = decode_b64_byte(*byte)?;
-        }
-        output.push((chunk[0] << 2) | (chunk[1] >> 4));
-        if group[2] != b'=' {
-            output.push((chunk[1] << 4) | (chunk[2] >> 2));
-        }
-        if group[3] != b'=' {
-            output.push((chunk[2] << 6) | chunk[3]);
+
+    for chunk_bytes in bytes.chunks(4) {
+        chunk[0] = chunk_bytes[0];
+        chunk[1] = *chunk_bytes.get(1).unwrap_or(&b'=');
+        chunk[2] = *chunk_bytes.get(2).unwrap_or(&b'=');
+        chunk[3] = *chunk_bytes.get(3).unwrap_or(&b'=');
+
+        let a = decode_b64_byte(chunk[0])?;
+        let b = decode_b64_byte(chunk[1])?;
+
+        output.push((a << 2) | (b >> 4));
+        if chunk[2] != b'=' {
+            let c = decode_b64_byte(chunk[2])?;
+            output.push((b << 4) | (c >> 2));
+            if chunk[3] != b'=' {
+                let d = decode_b64_byte(chunk[3])?;
+                output.push((c << 6) | d);
+            }
         }
     }
+
     Ok(output)
 }
 
@@ -205,8 +209,8 @@ fn decode_b64_byte(byte: u8) -> Result<u8, String> {
         b'A'..=b'Z' => Ok(byte - b'A'),
         b'a'..=b'z' => Ok(byte - b'a' + 26),
         b'0'..=b'9' => Ok(byte - b'0' + 52),
-        b'+' => Ok(62),
-        b'/' => Ok(63),
+        b'+' | b'-' => Ok(62),
+        b'/' | b'_' => Ok(63),
         b'=' => Ok(0),
         _ => Err(format!("invalid base64 byte {byte}")),
     }
@@ -235,6 +239,20 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn benchmark_decode_title_frame() {
+        let json = r#"{"v":1,"action":"STATUS_REPORT","bootId":"boot1","seq":1,"payload":{"bulkReady":true}}"#;
+        let frame = format!("{TITLE_PREFIX}boot1|1|{}", encode_for_test(json));
+        let start = std::time::Instant::now();
+        for _ in 0..10_000 {
+            let _ = decode_title_frame(&frame).unwrap();
+        }
+        let elapsed = start.elapsed();
+        // Print the benchmark results so developers can monitor performance locally.
+        // We do not assert a hard time limit to avoid flaky tests in constrained CI environments.
+        println!("benchmark_decode_title_frame: {} iterations took {:?}", 10_000, elapsed);
     }
 
     #[test]
